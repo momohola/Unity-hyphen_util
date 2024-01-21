@@ -1,0 +1,184 @@
+-- hyphen_util.txt --------------------------------------------------
+-- author:
+-- date: 
+-- ver:  
+-- desc:    自动添加连词符
+-------------------------------------------------------------------
+
+local event = require "event"
+local util = require "util"
+local log = require "log"
+local lang = require "lang"
+local utf8 = require "utf8"
+local tostring = tostring
+local ipairs = ipairs
+local require = require
+local dump = dump
+local print = print
+local string = string
+local tonumber = tonumber
+local type = type
+local typeof = typeof
+
+module("hyphen_util")
+
+local isEnable = true  --启用功能
+
+--下面这些字符前面和后面不会添加连词符
+local noAppendHyphenCharacter =
+{
+    ["-"]="-",
+    ["."]=".",
+    [","]=",",
+    ["。"]="。",
+    ["，"]="，",
+    ["{"]="{",
+    ["}"]="}",
+    ["("]="(",
+    [")"]=")",
+    ["（"]="（",
+    ["）"]="）",
+    ["["]="[",
+    ["]"]="]",
+    ["|"]="|",
+    ["&"]="&",
+    ["*"]="*",
+    ["/"]="/",
+    ["\\"]="\\",
+    ["#"]="#",
+    ["%"]="%",
+    ["~"]="~",
+    ["、"]="、",
+    [":"]=":",
+    [";"]=";",
+    ["?"]="?",
+    ["?"]="?",
+    ["!"]="!",
+    ["`"]="`",
+    ["\'"]="\'",
+    ["\""]="\"",
+    ["$"]="$",
+    ["_"]="_",
+    ["0"]="0",
+    ["1"]="1",
+    ["2"]="2",
+    ["3"]="3",
+    ["4"]="4",
+    ["5"]="5",
+    ["6"]="6",
+    ["7"]="7",
+    ["8"]="8",
+    ["9"]="9",
+}
+
+---自动添加连词符，添加连词符需要关闭bestfit、开启富文本显示，只能给needAppendHyphenLanguage列表里面的语言添加连词符
+---@param textComponent text text组件
+---@param str string
+---@param delayTime double 延迟时间，部分text在赋值之后需要短暂延迟才能计算text组件的宽度
+function AutoAppendHyphen(textComponent, str, delayTime)
+    local func = function()
+        if not isEnable then
+            return
+        end
+        if IsNullOrEmpty(str) then
+            str = textComponent.text
+            if str == "" then
+                return
+            end
+        end
+        textComponent.resizeTextForBestFit = false
+        textComponent.supportRichText = true
+        textComponent.text = GetAppendHyphenStr(textComponent, str)
+    end
+
+    if delayTime then
+        util.DelayCallOnce(delayTime, func)   --需要自己实现延迟功能
+    else
+        func()
+    end
+end
+
+---返回添加了连词符的文本
+---@param textComponent text text组件
+---@param str string
+---@return string 返回添加了连词符的文本
+function GetAppendHyphenStr(textComponent, str)
+    if not isEnable then
+        return str
+    end
+
+    if IsNullOrEmpty(str) then
+        str = textComponent.text
+        if str == "" then
+            return str
+        end
+    end
+
+    local separator = " "
+    if string.find(str, " ") then
+        separator = " "
+    end
+
+    local words = string.split(str, separator)   --按照单词进行分割
+    local textWidth = textComponent.rectTransform.rect.width     --获得当前的文本框宽度
+    local line = ""
+    local wrappedText = ""
+    for _, word in ipairs(words) do
+        local spaceLine = line .. separator
+        if GetTextPreferredWidth(textComponent, spaceLine .. word) > textWidth then
+            local substring = ""                --截断的单词
+            local lastSubString = ""            --上一个截断单词
+            local isFind = false                --是都找到了断行的位置
+            local leaveStr = ""                 --剩余的字符串
+            local oldChar                       --上一个字符
+            for pos, char in utf8.codes(word) do
+                substring = substring .. char
+                if not isFind and GetTextPreferredWidth(textComponent,spaceLine .. substring .. "-") > textWidth then
+                    --防止刚好是空格+单个字母+"-"超行的情况，这个时候直接把这个单词放到下一行
+                    if not oldChar then
+                        wrappedText = wrappedText .. line  .. "\n"
+                        line = word
+                        break
+                    else
+                        wrappedText = wrappedText .. spaceLine .. lastSubString
+                        if noAppendHyphenCharacter[char] or noAppendHyphenCharacter[oldChar] then   --防止出现连续两个换行符的情况
+                            wrappedText = wrappedText .. "\n"
+                        else
+                            wrappedText = wrappedText .. "-\n"
+                        end
+                        --wrappedText = wrappedText .. spaceLine .. lastSubString .. "-\n"
+                        isFind = true
+                    end
+                end
+                if isFind then
+                    leaveStr = leaveStr .. char
+                end
+                oldChar = char
+                lastSubString = substring
+            end
+            if not IsNullOrEmpty(leaveStr) then
+                line = leaveStr
+            end
+        else
+            if not IsNullOrEmpty(line) then
+                line = line .. separator
+            end
+            line = line .. word
+        end
+    end
+    wrappedText = wrappedText .. line
+    return wrappedText
+end
+
+---计算text组件文本的宽度
+function GetTextPreferredWidth(textComponent, str)
+    return textComponent.cachedTextGenerator:GetPreferredWidth(str, textComponent:GetGenerationSettings(textComponent.rectTransform.rect.size))
+end
+
+function SetEnable(state)
+    isEnable = state
+end
+
+function IsNullOrEmpty(str)
+    return (not str) or str == ""
+end
